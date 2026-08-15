@@ -23,8 +23,9 @@
     box-shadow:0 0 40px #0008;
     overflow:hidden;
     user-select:none;
+    touch-action:none;
   }
-  #game { width:100%; height:100%; display:block; }
+  #game { width:100%; height:100%; display:block; touch-action:none; }
   #hud {
     position:absolute; inset:14px 14px auto 14px;
     display:flex; justify-content:space-between; gap:10px; pointer-events:none;
@@ -72,7 +73,7 @@
       <h1>🏃 Smootwo, RUN!</h1>
       <p>Avoid the <b>Brodie Kemp badge</b>.</p>
       <p>Collect <b>Atar 💧</b> for +10 and <b>Putbar 🥜</b> for +25.</p>
-      <p>Move with <b>WASD</b> or <b>arrow keys</b>.</p>
+      <p>Move with <b>WASD</b>, <b>arrow keys</b>, or on mobile by <b>tapping the screen</b> in the direction you want Smootwo to go.</p>
       <button id="startBtn">START GAME</button>
       <p class="small">The badge gets faster as your score rises.</p>
     </div>
@@ -109,6 +110,7 @@ const enemy = {x:900,y:210,r:54,speed:135};
 let items = [];
 let particles = [];
 let tears = [];
+let mobileMove = {active:false, dx:0, dy:0, lastTapX:null, lastTapY:null};
 
 function fitCanvas() {
   const rect = wrap.getBoundingClientRect();
@@ -124,9 +126,44 @@ window.addEventListener('resize',fitCanvas); fitCanvas();
 
 addEventListener('keydown', e => {
   const k=e.key.toLowerCase(); keys[k]=true;
+  mobileMove.active = false;
   if(["arrowup","arrowdown","arrowleft","arrowright"," "].includes(k)) e.preventDefault();
 });
 addEventListener('keyup', e => keys[e.key.toLowerCase()]=false);
+
+function setMobileDirectionFromEvent(e) {
+  if(gameState !== 'playing') return;
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const dx = x - player.x;
+  const dy = y - player.y;
+  const dist = Math.hypot(dx,dy);
+  mobileMove.lastTapX = x;
+  mobileMove.lastTapY = y;
+  if(dist < 16) {
+    mobileMove.active = false;
+    mobileMove.dx = 0;
+    mobileMove.dy = 0;
+    return;
+  }
+  mobileMove.active = true;
+  mobileMove.dx = dx / dist;
+  mobileMove.dy = dy / dist;
+}
+
+canvas.addEventListener('pointerdown', e => {
+  if(!running || gameState !== 'playing') return;
+  setMobileDirectionFromEvent(e);
+  e.preventDefault();
+});
+canvas.addEventListener('pointermove', e => {
+  if(!running || gameState !== 'playing') return;
+  if(e.pointerType === 'touch' && e.buttons !== 0) {
+    setMobileDirectionFromEvent(e);
+    e.preventDefault();
+  }
+});
 
 function reset() {
   score=0; scoreEl.textContent=0;
@@ -136,6 +173,7 @@ function reset() {
   gameState='playing';
   cryTimer=0;
   items=[]; particles=[]; tears=[];
+  mobileMove = {active:false, dx:0, dy:0, lastTapX:null, lastTapY:null};
   spawnItem('atar'); spawnItem('putbar');
 }
 
@@ -216,6 +254,11 @@ function update(dt) {
     if(keys['arrowdown']||keys['s']) dy++;
     if(dx||dy) {
       const m=Math.hypot(dx,dy); dx/=m; dy/=m;
+    } else if(mobileMove.active) {
+      dx = mobileMove.dx;
+      dy = mobileMove.dy;
+    }
+    if(dx||dy) {
       player.x += dx*player.speed*dt; player.y += dy*player.speed*dt;
     }
     player.x=Math.max(player.r,Math.min(W-player.r,player.x));
@@ -297,6 +340,18 @@ function draw() {
       ctx.font='48px Arial'; ctx.fillText('🥜',it.x,yy);
       ctx.font='900 15px Arial'; ctx.fillStyle='#5b2a00'; ctx.fillText('PUTBAR',it.x,yy+38);
     }
+    ctx.restore();
+  }
+
+  // optional mobile tap marker
+  if(gameState === 'playing' && mobileMove.active && mobileMove.lastTapX !== null) {
+    ctx.save();
+    ctx.strokeStyle='#ffffffcc';
+    ctx.lineWidth=3;
+    ctx.setLineDash([8,8]);
+    ctx.beginPath();
+    ctx.arc(mobileMove.lastTapX, mobileMove.lastTapY, 18, 0, Math.PI*2);
+    ctx.stroke();
     ctx.restore();
   }
 
